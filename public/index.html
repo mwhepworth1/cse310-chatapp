@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Chat App</title>
+    <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="channels">
+            <h2>Channels</h2>
+            <div class="channel">General</div>
+            <div class="channel">Random</div>
+            <div class="channel">Help</div>
+            <!-- Add more channels as needed -->
+            <div class="user-profile" onclick="redirectToProfile()">
+                <img src="https://placehold.co/40x40" alt="User Profile Picture">
+                <span>Default User</span>
+            </div>
+        </div>
+        <div class="chat-content">
+            <div class="chat-header">
+                <h1>Live Chat</h1>
+            </div>
+            <div class="chat-messages" id="chat-messages">
+                <div class="welcome-message">
+                    Welcome, Default User <br> Be the first to send a message in General
+                </div>
+            </div>
+            <div class="chat-input">
+                <button onclick="togglePollPopup()">POLL</button>
+                <button onclick="toggleGifPopup()">GIF</button>
+                <input type="text" id="message-input" placeholder="Type a message...">
+                <button onclick="sendMessage()">Send</button>
+                <div id="gif-popup" class="gif-popup">
+                    <div class="gif-popup-header">
+                        <button onclick="toggleGifPopup()">Close</button>
+                    </div>
+                    <div class="gif-popup-content" id="gif-results">
+                        <!-- GIF results will appear here -->
+                    </div>
+                </div>
+                <div id="poll-popup" class="poll-popup">
+                    <div class="poll-popup-header">
+                        <button onclick="togglePollPopup()">Close</button>
+                    </div>
+                    <div class="poll-popup-content">
+                        <input type="text" id="poll-question" placeholder="Poll question">
+                        <input type="text" class="poll-option" placeholder="Option 1">
+                        <input type="text" class="poll-option" placeholder="Option 2">
+                        <div id="additional-options"></div>
+                        <button onclick="addPollOption()">Add Option</button>
+                        <button onclick="createPoll()">Create Poll</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="assets/scripts.js"></script>
+</body>
+</html>
