@@ -14,9 +14,9 @@
             <div class="channel">Random</div>
             <div class="channel">Help</div>
             <!-- Add more channels as needed -->
-            <div class="user-profile" onclick="redirectToProfile()">
-                <img src="https://placehold.co/40x40" alt="User Profile Picture">
-                <span>Default User</span>
+            <div class="user-profile" onclick="toggleProfileModal()">
+                <img src="<%= userProfilePicture %>" alt="User Profile Picture">
+                <span><%= userDisplayName %></span>
             </div>
         </div>
         <div class="chat-content">
@@ -25,7 +25,7 @@
             </div>
             <div class="chat-messages" id="chat-messages">
                 <div class="welcome-message">
-                    Welcome, Default User <br> Be the first to send a message in General
+                    Welcome, <%= userDisplayName %> <br> Be the first to send a message in General
                 </div>
             </div>
             <div class="chat-input">
@@ -37,8 +37,11 @@
                     <div class="gif-popup-header">
                         <button onclick="toggleGifPopup()">Close</button>
                     </div>
-                    <div class="gif-popup-content" id="gif-results">
-                        <!-- GIF results will appear here -->
+                    <div class="gif-popup-content">
+                        <input type="text" id="gif-search" placeholder="Search for GIFs..." onkeypress="searchGifs(event)">
+                        <div id="gif-results">
+                            <!-- GIF results will appear here -->
+                        </div>
                     </div>
                 </div>
                 <div id="poll-popup" class="poll-popup">
@@ -55,6 +58,21 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+    <div id="profile-modal" class="profile-modal">
+        <div class="profile-modal-content">
+            <span class="close" onclick="toggleProfileModal()">&times;</span>
+            <h2>Update Profile</h2>
+            <form id="profile-form" method="POST" action="/update-profile">
+                <label for="displayname">Display Name:</label>
+                <input type="text" id="displayname" name="displayname" value="<%= userDisplayName %>" required>
+                <label for="profile-picture-url">Profile Picture URL:</label>
+                <input type="url" id="profile-picture-url" name="profile-picture-url" value="<%= userProfilePicture %>">
+                <label for="profile-picture-file">Or Upload Profile Picture:</label>
+                <input type="file" id="profile-picture-file" name="profile-picture-file" accept="image/*">
+                <button type="submit">Update Profile</button>
+            </form>
         </div>
     </div>
     <script src="assets/scripts.js"></script>
