@@ -97,8 +97,15 @@ body, html {
                 flex-direction: column;
 
                 .chat-message-username {
+                    display: inline;
                     font-weight: bold;
-                    margin-bottom: 5px;
+                }
+                .chat-message-timestamp {
+                    display: inline;
+                    font-size: 0.8em;
+                    font-weight: normal;
+                    margin-left: 5px;
+                    color: #555;
                 }
             }
         }
@@ -268,7 +275,7 @@ body, html {
 
 .profile-modal {
     display: none;
-    position: fixed;
+    position: fixed; 
     z-index: 1001;
     left: 0;
     top: 0;

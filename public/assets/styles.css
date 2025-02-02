@@ -87,8 +87,15 @@ body, html {
   flex-direction: column;
 }
 .chat-container .chat-content .chat-message .chat-message-content .chat-message-username {
+  display: inline;
   font-weight: bold;
-  margin-bottom: 5px;
+}
+.chat-container .chat-content .chat-message .chat-message-content .chat-message-timestamp {
+  display: inline;
+  font-size: 0.8em;
+  font-weight: normal;
+  margin-left: 5px;
+  color: #555;
 }
 .chat-container .chat-content .chat-input {
   display: flex;

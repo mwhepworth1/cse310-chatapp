@@ -10,16 +10,13 @@ const server = http.createServer(app);
 const io = socketIo(server);
 const port = 5500;
 
-// Ensure the directory exists
 const uploadDir = path.join(__dirname, 'public', 'pfps');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Set EJS as the view engine
 app.set('view engine', 'ejs');
 
-// Set the views directory
 app.set('views', path.join(__dirname, 'views'));
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -36,10 +33,10 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Define a route
 app.get('/', (req, res) => {
-    const userProfilePicture = 'https://placehold.co/512x512'; // Example profile picture URL
-    const userDisplayName = 'Matthew H'; // Example display name
+    const defaultProfilePictureUrl = process.env.DEFAULT_PROFILE_PICTURE_URL || 'http://localhost:5500/pfps/dummy';
+    const userProfilePicture = `${defaultProfilePictureUrl}/${Math.floor(Math.random() * 18) + 1}.jpg`; // Default profile picture URL
+    const userDisplayName = '';
 
     res.render('index', { 
         title: 'Chat App',
@@ -48,7 +45,6 @@ app.get('/', (req, res) => {
     });
 });
 
-// Handle profile updates
 app.post('/update-profile', upload.single('profile-picture-file'), async (req, res) => {
     let userProfilePicture = req.body['profile-picture-url'];
 
@@ -66,14 +62,52 @@ app.post('/update-profile', upload.single('profile-picture-file'), async (req, r
     });
 });
 
-// Handle socket connections
+const polls = {}; // Global polls storage
+
 io.on('connection', (socket) => {
     console.log('A user connected');
 
-    // Handle incoming messages
+    socket.emit('request profile');
+
     socket.on('chat message', (msg) => {
-        console.log(`${msg.displayName} > ${msg.text}`); // Log message by display name
-        io.emit('chat message', msg); // Broadcast message to all clients
+        // Attach a timestamp to the message
+        msg.timestamp = new Date().toLocaleTimeString();
+        // Simple content moderation
+        const forbiddenWords = ['badword1', 'badword2']; // https://www.cs.cmu.edu/~biglou/resources/bad-words.txt
+        let isMessageClean = true;
+
+        forbiddenWords.forEach(word => {
+            if (msg.text.includes(word)) {
+                isMessageClean = false;
+            }
+        });
+
+        if (isMessageClean) {
+            console.log(`${msg.displayName} > ${msg.text} at ${msg.timestamp}`); 
+            io.emit('chat message', msg); 
+        } else {
+            socket.emit('message error', 'Your message contains inappropriate content.');
+        }
+    });
+
+    // Handle poll creation and store poll data
+    socket.on('create poll', (pollData) => {
+        // Initialize votes count for each option to 0
+        const votes = {};
+        pollData.options.forEach(option => votes[option] = 0);
+        polls[pollData.question] = { options: pollData.options, votes };
+        io.emit('poll update', { question: pollData.question, options: pollData.options, votes, totalVotes: 0 });
+    });
+
+    // Handle vote submission
+    socket.on('vote submission', (voteData) => {
+        const poll = polls[voteData.question];
+        if (poll) {
+            poll.votes[voteData.selectedOption] = (poll.votes[voteData.selectedOption] || 0) + 1;
+            const totalVotes = Object.values(poll.votes).reduce((sum, count) => sum + count, 0);
+            // Broadcast vote update event to all connected clients
+            io.emit('vote update', { question: voteData.question, options: poll.options, votes: poll.votes, totalVotes });
+        }
     });
 
     socket.on('disconnect', () => {
@@ -81,7 +115,6 @@ io.on('connection', (socket) => {
     });
 });
 
-// Start the server
 server.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });

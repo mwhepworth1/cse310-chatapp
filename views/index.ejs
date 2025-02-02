@@ -11,8 +11,8 @@
         <div class="channels">
             <h2>Channels</h2>
             <div class="channel">General</div>
-            <div class="channel">Random</div>
-            <div class="channel">Help</div>
+            <!-- <div class="channel">Random</div>
+            <div class="channel">Help</div> -->
             <div class="user-profile" onclick="toggleProfileModal()">
                 <img src="<%= userProfilePicture %>" alt="User Profile Picture">
                 <span><%= userDisplayName %></span>
@@ -61,7 +61,6 @@
     </div>
     <div id="profile-modal" class="profile-modal">
         <div class="profile-modal-content">
-            <span class="close" onclick="toggleProfileModal()">&times;</span>
             <h2>Update Profile</h2>
             <form id="profile-form" method="POST" action="/update-profile">
                 <label for="displayname">Display Name:</label>
