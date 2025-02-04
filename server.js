@@ -4,6 +4,35 @@ const http = require('http');
 const socketIo = require('socket.io');
 const multer = require('multer');
 const fs = require('fs');
+const pg = require('pg');
+const { Pool, Client } = pg;
+const dotenv = require('dotenv');
+dotenv.config();
+
+/**
+ * A Client represents a single connection to the database, which you manually connect and disconnect, while a Pool 
+ * manages multiple client connections and reuses them automatically for concurrent queries. 
+ * The Pool simplifies connection management and is recommended for web applications with many requests. 
+ * Source: GitHub Copilot using o3-mini (preview).
+ */
+const pool = new Pool({
+    user: process.env.DB_USER,
+    host: process.env.DB_HOST,
+    database: process.env.DB_NAME,
+    password: process.env.DB_PASS,
+    port: process.env.DB_PORT
+});
+
+const testDbConnection = async () => {
+    try {
+        await pool.query('SELECT NOW()');
+        console.log('[DB] Connected to the database');
+        return true;
+    } catch (err) {
+        console.error('Database connection error:', err);
+        return false;
+    }
+};
 
 const app = express();
 const server = http.createServer(app);
@@ -65,7 +94,8 @@ app.post('/update-profile', upload.single('profile-picture-file'), async (req, r
 const polls = {}; // Global polls storage
 
 io.on('connection', (socket) => {
-    console.log('A user connected');
+    const userIp = socket.handshake.address;
+    console.log(`[WS] A user connected from IP: ${userIp}`);
 
     socket.emit('request profile');
 
@@ -83,8 +113,20 @@ io.on('connection', (socket) => {
         });
 
         if (isMessageClean) {
-            console.log(`${msg.displayName} > ${msg.text} at ${msg.timestamp}`); 
-            io.emit('chat message', msg); 
+            // Insert the message into the DB before broadcasting
+            const userId = 1;     // Assumed default user_id
+            const channelId = 1;  // Assumed default channel_id for "General"
+            const query = 'INSERT INTO messages (user_id, channel_id, content) VALUES ($1, $2, $3) RETURNING created_at';
+            pool.query(query, [userId, channelId, msg.text])
+                .then(result => {
+                    msg.timestamp = new Date(result.rows[0].created_at).toLocaleTimeString();
+                    io.emit('chat message', msg);
+                })
+                .catch(err => {
+                    console.error('Error inserting message:', err);
+                    // Optionally still broadcast the message if insert fails.
+                    io.emit('chat message', msg);
+                });
         } else {
             socket.emit('message error', 'Your message contains inappropriate content.');
         }
@@ -115,6 +157,14 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
-});
+(async () => {
+    const dbConnected = await testDbConnection();
+    if (!dbConnected) {
+        console.error('Failed to connect to the database. Exiting...');
+        process.exit(1);
+    }
+
+    server.listen(port, () => {
+        console.log(`Server is running on http://localhost:${port}`);
+    });
+})();
