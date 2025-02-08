@@ -93,38 +93,90 @@ app.post('/update-profile', upload.single('profile-picture-file'), async (req, r
 
 const polls = {}; // Global polls storage
 
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
     const userIp = socket.handshake.address;
     console.log(`[WS] A user connected from IP: ${userIp}`);
 
     socket.emit('request profile');
 
+    // Load persistent messages and polls from the DB and send to the new user.
+    try {
+        const messagesResult = await pool.query(`
+            SELECT m.message_id, m.content, m.created_at, u.display_name, u.profile_picture
+            FROM messages m
+            LEFT JOIN users u ON m.user_id = u.user_id
+            WHERE m.channel_id = 1
+            ORDER BY m.created_at ASC
+        `);
+        const messages = messagesResult.rows.map(row => ({
+            message_id: row.message_id,
+            text: row.content,
+            timestamp: new Date(row.created_at).toLocaleTimeString(),
+            displayName: row.display_name,
+            profilePicture: row.profile_picture
+        }));
+
+        // Load polls
+        const pollsResult = await pool.query(`
+            SELECT poll_id, question, created_at
+            FROM polls
+            ORDER BY created_at ASC
+        `);
+        const polls = [];
+        for (const poll of pollsResult.rows) {
+            const optionsResult = await pool.query(`
+                SELECT po.option_text, COUNT(pv.vote_id) AS vote_count
+                FROM poll_options po
+                LEFT JOIN poll_votes pv ON po.option_id = pv.option_id
+                WHERE po.poll_id = $1
+                GROUP BY po.option_text
+            `, [poll.poll_id]);
+            
+            const votes = {};
+            let totalVotes = 0;
+            const options = optionsResult.rows.map(r => {
+                const count = parseInt(r.vote_count, 10);
+                votes[r.option_text] = count;
+                totalVotes += count;
+                return r.option_text;
+            });
+            polls.push({
+                pollId: poll.poll_id,
+                question: poll.question,
+                options,
+                votes,
+                totalVotes
+            });
+        }
+
+        socket.emit('load data', { messages, polls });
+    } catch (err) {
+        console.error('Error loading persistent data:', err);
+    }
+
     socket.on('chat message', (msg) => {
-        // Attach a timestamp to the message
         msg.timestamp = new Date().toLocaleTimeString();
-        // Simple content moderation
         const forbiddenWords = ['badword1', 'badword2']; // https://www.cs.cmu.edu/~biglou/resources/bad-words.txt
         let isMessageClean = true;
-
         forbiddenWords.forEach(word => {
             if (msg.text.includes(word)) {
                 isMessageClean = false;
             }
         });
-
         if (isMessageClean) {
-            // Insert the message into the DB before broadcasting
-            const userId = 1;     // Assumed default user_id
-            const channelId = 1;  // Assumed default channel_id for "General"
-            const query = 'INSERT INTO messages (user_id, channel_id, content) VALUES ($1, $2, $3) RETURNING created_at';
+            // Insert the message into the DB before broadcasting to ensure the message saves correctly,
+            // returning the message id and created_at timestamp.
+            const userId = 1;     
+            const channelId = 1;  
+            const query = 'INSERT INTO messages (user_id, channel_id, content) VALUES ($1, $2, $3) RETURNING message_id, created_at';
             pool.query(query, [userId, channelId, msg.text])
                 .then(result => {
+                    msg.message_id = result.rows[0].message_id;
                     msg.timestamp = new Date(result.rows[0].created_at).toLocaleTimeString();
                     io.emit('chat message', msg);
                 })
                 .catch(err => {
                     console.error('Error inserting message:', err);
-                    // Optionally still broadcast the message if insert fails.
                     io.emit('chat message', msg);
                 });
         } else {
@@ -132,23 +184,95 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Handle poll creation and store poll data
-    socket.on('create poll', (pollData) => {
-        // Initialize votes count for each option to 0
-        const votes = {};
-        pollData.options.forEach(option => votes[option] = 0);
-        polls[pollData.question] = { options: pollData.options, votes };
-        io.emit('poll update', { question: pollData.question, options: pollData.options, votes, totalVotes: 0 });
+    socket.on('edit message', (data) => {
+        const query = `
+            UPDATE messages 
+            SET content = $1 
+            WHERE message_id = $2 
+              AND (CURRENT_TIMESTAMP - created_at) < interval '5 minutes'
+            RETURNING content`;
+        pool.query(query, [data.newContent, data.messageId])
+            .then(result => {
+                if (result.rowCount > 0) {
+                    io.emit('message edited', { messageId: data.messageId, newContent: result.rows[0].content });
+                } else {
+                    socket.emit('message error', 'Edit failed: time expired or unauthorized.');
+                }
+            })
+            .catch(err => {
+                console.error('Error editing message:', err);
+                socket.emit('message error', 'Edit error');
+            });
     });
 
-    // Handle vote submission
-    socket.on('vote submission', (voteData) => {
-        const poll = polls[voteData.question];
-        if (poll) {
-            poll.votes[voteData.selectedOption] = (poll.votes[voteData.selectedOption] || 0) + 1;
-            const totalVotes = Object.values(poll.votes).reduce((sum, count) => sum + count, 0);
-            // Broadcast vote update event to all connected clients
-            io.emit('vote update', { question: voteData.question, options: poll.options, votes: poll.votes, totalVotes });
+    socket.on('delete message', (data) => {
+        const query = "DELETE FROM messages WHERE message_id = $1 RETURNING message_id";
+        pool.query(query, [data.messageId])
+            .then(result => {
+                if (result.rowCount > 0) {
+                    io.emit('message deleted', { messageId: data.messageId });
+                } else {
+                    socket.emit('message error', 'Delete failed: message not found or unauthorized.');
+                }
+            })
+            .catch(err => {
+                console.error('Error deleting message:', err);
+                socket.emit('message error', 'Delete error');
+            });
+    });
+
+    socket.on('create poll', async (pollData) => {
+        try {
+            const createdBy = 1; // default user id
+            const pollQuery = 'INSERT INTO polls (question, created_by) VALUES ($1, $2) RETURNING poll_id';
+            const pollResult = await pool.query(pollQuery, [pollData.question, createdBy]);
+            const pollId = pollResult.rows[0].poll_id;
+            for (const option of pollData.options) {
+                const optionQuery = 'INSERT INTO poll_options (poll_id, option_text) VALUES ($1, $2)';
+                await pool.query(optionQuery, [pollId, option]);
+            }
+            const votes = {};
+            pollData.options.forEach(option => votes[option] = 0);
+            io.emit('poll update', { pollId, question: pollData.question, options: pollData.options, votes, totalVotes: 0 });
+        } catch (err) {
+            console.error('Error creating poll:', err);
+            socket.emit('message error', 'Poll creation failed.');
+        }
+    });
+
+    socket.on('vote submission', async (voteData) => {
+        try {
+            const { pollId, selectedOption } = voteData;
+            const optionQuery = 'SELECT option_id FROM poll_options WHERE poll_id = $1 AND option_text = $2';
+            const optionResult = await pool.query(optionQuery, [pollId, selectedOption]);
+            if(optionResult.rowCount === 0) {
+                return socket.emit('message error', 'Invalid poll option.');
+            }
+            const optionId = optionResult.rows[0].option_id;
+            const userId = 1; // default user id
+
+            const voteQuery = 'INSERT INTO poll_votes (poll_id, option_id, user_id) VALUES ($1, $2, $3)';
+            await pool.query(voteQuery, [pollId, optionId, userId]);
+
+            const votesQuery = `
+                SELECT po.option_text, COUNT(pv.vote_id) AS vote_count
+                FROM poll_options po
+                LEFT JOIN poll_votes pv ON po.option_id = pv.option_id
+                WHERE po.poll_id = $1
+                GROUP BY po.option_text
+            `;
+            const votesResult = await pool.query(votesQuery, [pollId]);
+            const votes = {};
+            let totalVotes = 0;
+            votesResult.rows.forEach(row => {
+                const count = parseInt(row.vote_count, 10);
+                votes[row.option_text] = count;
+                totalVotes += count;
+            });
+            io.emit('vote update', { pollId, options: Object.keys(votes), votes, totalVotes });
+        } catch (err) {
+            console.error('Error submitting vote:', err);
+            socket.emit('message error', 'Vote submission failed.');
         }
     });
 
